@@ -13,36 +13,33 @@ knitr::opts_chunk$set(echo = TRUE)
 
 La hipótesis de esta (breve y rápida investigación) es:
 
-> «El tipo de cambio USD/PEN se aprecia en los N días previos a las elecciones y se deprecia en los N días posteriores a las elecciones».
+> El tipo de cambio USD/PEN se aprecia en los $N$ días previos a las elecciones y se deprecia en los $N$ días posteriores a las elecciones.
 
-siendo N=**15, 30, 60, 90, 120 días** antes y después. 
+siendo $N=5,10,15,20,30,60,90,120$días.
 
-El razonamiento es que -desde la instauración de la República Empresarial- las segundas vueltas electorales han sido marcadas por una campana mediática polarizante entre un/a candidato/a de "derecha" y otro/a candidato/a de "izquierda". Esta polarización altera exógenamente el mercado y los individuos tienden hacia una posición conservadora por la cual compran dólares para protegerse de un posible derrumbe económico, en caso gane un/a candidato/a de "izquierda". Esto se debe a la gran concentración de medios en el país que informa directamente a los individuos con mayor capacidad de gasto y ahorro, es decir, a las clases A y B del país, que son -por su mayoría y capacidad de gasto- los individuos que más dólares pueden comprar. Al mismo tiempo, al ser el Banco Central de Reserva independiente, este no interviene rápidamente para reducir (o aumentar) el tipo de cambio, sino que prefiere esperar a una reducción paulativa del miedo generalizado, lo que lleva -casi naturalmente- a una reducción en el tipo de cambio, permitiendo esta seasonality.
+# 0) Configuración
 
-# Settings
-```{r settings}
-# Load required libraries
+```{r settings, warning=FALSE, error=FALSE, echo=TRUE, results='hide', message=FALSE}
+# Load libraries
 library(tidyverse)
 library(summariser)
 library(dplyr)
 library(lubridate)
-library(quantmod)     # For financial data
+library(quantmod)
 library(ggplot2)
-library(knitr)        # For nice tables
-library(scales)       # For percentage formatting
-library(ggrepel)      # For better label placement
-library(patchwork)    # For combining plots
+library(knitr)
+library(scales)
+library(ggrepel)
+library(patchwork)
 
-# Set random seed for reproducibility
-set.seed(123)
-
-# Set plotting theme
-theme_set(theme_minimal(base_size = 12))
+set.seed(42) # Set random seed for reproducibility
+theme_set(theme_minimal(base_size = 12)) # Set plotting theme
 ```
 
-# Preprocesamiento
-```{r preprocess1}
-df_ex_ra <- read.csv("./data/exchange_rate.csv", header = TRUE, sep = ",", dec = ".",)
+# 1) Preprocesamiento de datos
+
+```{r preprocess1, warning=FALSE}
+df_ex_ra <- read.csv("./data/exchange_rate.csv")
 df_ex_ra$value <- as.double(df_ex_ra$value)
 df_ex_ra$date <- as.Date(df_ex_ra$date, "%d.%m.%y")
 summary(df_ex_ra)
@@ -51,11 +48,14 @@ summary(df_ex_ra)
 ```{r preprocess2}
 df_elect <- read.csv("./data/elections.csv", header = TRUE, sep = ",", dec = ".",)
 df_elect$date <- as.Date(df_elect$date, "%d.%m.%y")
+df_elect$round <- as.factor(df_elect$round)
+# df_elect <- df_elect[which(df_elect$round=="first"),]
+df_elect <- df_elect[which(df_elect$round=="second"),]
+df_elect$winner <- as.factor(df_elect$winner)
 summary(df_elect)
 ```
 
-# Visualización
-```{r plot1}
+```{r plot1, include=TRUE, echo=FALSE}
 p1 <- ggplot() +
   geom_line(data = df_ex_ra, aes(x = date, y = value), 
             color = "steelblue", alpha = 0.7) +
@@ -68,34 +68,29 @@ p1 <- ggplot() +
 print(p1)
 ```
 
-# Función
-```{r window_function}
-# Function to calculate returns for specific windows around elections
+# 2) Función principal
+
+```{r main_function}
+# Function to calculate pre and post returns for a given window
 calculate_window_returns <- function(df_exchange, df_elections, window_days) {
   results <- list()
   
-  # Get election dates from the elections dataframe
   election_dates <- df_elections$date
   
   for(i in seq_along(election_dates)) {
     election_date <- election_dates[i]
     
-    # Find index position in exchange rate data
-    # We need to find the closest trading day to the election date
-    # Since election dates might not be trading days
+    # Find the closest trading day to the election date
     date_diffs <- abs(df_exchange$date - election_date)
     election_idx <- which.min(date_diffs)
     closest_date <- df_exchange$date[election_idx]
     
-    # Check if the closest date is within a reasonable range (e.g., 7 days)
-    if(as.numeric(difftime(closest_date, election_date, units = "days")) > 7) {
-      warning(paste("No exchange rate data found within 7 days of election date:", 
+    # Check if the closest date is within a reasonable range
+    if(as.numeric(difftime(closest_date, election_date, units = "days")) > 2) {
+      warning(paste("No exchange rate data found within 2 days of election date:", 
                     election_date))
       next
     }
-    
-    # Pre-election window: from N days before to 1 day before election
-    # We need to find the actual trading days
     
     # Find pre-election window start (N trading days before)
     pre_window_start_date <- election_date - window_days
@@ -106,7 +101,6 @@ calculate_window_returns <- function(df_exchange, df_elections, window_days) {
     pre_start_date <- df_exchange$date[pre_start_idx]
     
     # Find pre-election window end (1 trading day before election)
-    # Look for dates before election date
     dates_before <- df_exchange$date[df_exchange$date < election_date]
     if(length(dates_before) == 0) {
       warning(paste("No exchange rate data before election date:", election_date))
@@ -115,7 +109,6 @@ calculate_window_returns <- function(df_exchange, df_elections, window_days) {
     pre_end_date <- max(dates_before)
     pre_end_idx <- which(df_exchange$date == pre_end_date)
     
-    # Post-election window: from 1 day after to N days after
     # Find post-election window start (1 trading day after election)
     dates_after <- df_exchange$date[df_exchange$date > election_date]
     if(length(dates_after) == 0) {
@@ -125,7 +118,6 @@ calculate_window_returns <- function(df_exchange, df_elections, window_days) {
     post_start_date <- min(dates_after)
     post_start_idx <- which(df_exchange$date == post_start_date)
     
-    # Find post-election window end (N trading days after)
     post_window_end_date <- election_date + window_days
     
     # Find the closest trading day to post_window_end_date
@@ -156,8 +148,10 @@ calculate_window_returns <- function(df_exchange, df_elections, window_days) {
       results[[i]] <- tibble(
         election_id = i,
         election_date = election_date,
-        election_type = ifelse("type" %in% names(df_elections), 
-                              df_elections$type[i], "Presidential"),
+        round = ifelse("round" %in% names(df_elections), 
+                              df_elections$round[i], "none"),
+        winner = ifelse("winner" %in% names(df_elections),
+                              df_elections$winner[i], "none"), #TODO: FIX
         window_days = window_days,
         pre_start_date = pre_start_date,
         pre_end_date = pre_end_date,
@@ -190,12 +184,15 @@ calculate_window_returns <- function(df_exchange, df_elections, window_days) {
     tibble()  # Return empty tibble if no results
   }
 }
+```
 
+## 2.1) Funciones secundarias
+
+```{r secondary_function}
 # Wrapper function to calculate for multiple windows
-calculate_all_windows <- function(df_exchange, df_elections, windows = c(15, 30, 60, 90, 120)) {
+calculate_all_windows <- function(df_exchange, df_elections, windows = c(5, 10)) {
   all_results <- map_df(windows, ~calculate_window_returns(df_exchange, df_elections, .x))
   
-  # Add some additional metrics
   all_results <- all_results %>%
     group_by(window_days) %>%
     mutate(
@@ -207,16 +204,11 @@ calculate_all_windows <- function(df_exchange, df_elections, windows = c(15, 30,
   return(all_results)
 }
 
-# Ensure exchange rate data is sorted
 df_ex_ra <- df_ex_ra %>% arrange(date)
 
 # Calculate returns for all windows
-windows <- c(15, 30, 60, 90, 120)
+windows <- c(5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120)
 all_results <- calculate_all_windows(df_ex_ra, df_elect, windows)
-
-# View results
-cat("All window results:\n")
-print(head(all_results))
 
 # Create summary statistics
 summary_table <- all_results %>%
@@ -234,13 +226,11 @@ summary_table <- all_results %>%
     avg_net_effect = mean(net_effect, na.rm = TRUE)
   ) %>%
   mutate(across(where(is.numeric), ~round(., 3)))
-
-cat("\nSummary Statistics:\n")
-kable(summary_table)
 ```
 
-# Visualización de resultados
-```{r plot2}
+# 3) Visualización de resultados
+
+```{r plot2, echo=FALSE}
 # Plot 1: Average returns by window
 plot_data <- summary_table %>%
   select(window_days, avg_pre_return, avg_post_return) %>%
@@ -261,10 +251,11 @@ p2 <- ggplot(plot_data, aes(x = factor(window_days), y = return_pct, fill = peri
   scale_fill_manual(values = c("Pre-Election" = "#2E8B57", 
                                "Post-Election" = "#CD5C5C")) +
   theme(legend.position = "bottom")
+
 print(p2)
 ```
 
-```{r}
+```{r plot3, echo=FALSE}
 
 # Plot 2: Hit rate (frequency of expected moves)
 hit_data <- summary_table %>%
@@ -292,7 +283,8 @@ p3 <- ggplot(hit_data, aes(x = factor(window_days), y = percentage,
 
 print(p3)
 ```
-```{r}
+
+```{r plot4, echo=FALSE}
 
 # Plot 3: Individual election outcomes (example: 60-day window)
 individual_data <- all_results %>%
@@ -316,25 +308,18 @@ p4 <- ggplot(individual_data, aes(x = pre_return_pct, y = post_return_pct)) +
 print(p4)
 ```
 
-# Tests
+# 4) T-Tests
 
-```{r}
-# Test if pre-election returns are significantly > 0
-# and post-election returns significantly < 0
-
-significance_results <- tibble()
+```{r t_test}
+if (nrow(df_elect) > 4) {
+  significance_results <- tibble()
 
 for(w in windows) {
   window_data <- all_results %>% filter(window_days == w)
   
   if(nrow(window_data) > 1) {
-    # Test pre-election returns
     pre_test <- t.test(window_data$pre_return_pct, alternative = "greater")
-    
-    # Test post-election returns  
     post_test <- t.test(window_data$post_return_pct, alternative = "less")
-    
-    # Test if pre > post (paired test)
     paired_test <- t.test(window_data$pre_return_pct, 
                           window_data$post_return_pct, 
                           paired = TRUE, 
@@ -366,19 +351,18 @@ for(w in windows) {
     )
   }
 }
-
-cat("Statistical Significance Tests:\n")
-print(significance_results)
+  print(significance_results)
+}
 ```
 
-# Cumulative return
+# 5) Retorno acumulado
+
+## 5.1) Función principal
+
 ```{r cumulative_return}
-# Alternative simpler version using trading days only
 calculate_cumulative_returns_simple <- function(df_exchange, df_elections, max_window = 120) {
-  # Ensure data is sorted
   df_exchange <- df_exchange %>% arrange(date)
   
-  # List to store all election paths
   election_paths <- list()
   
   for(i in 1:nrow(df_elections)) {
@@ -445,44 +429,46 @@ calculate_cumulative_returns_simple <- function(df_exchange, df_elections, max_w
   return(cumulative_returns)
 }
 
-# Plot cumulative returns with enhanced visualization
+cumulative_df <- calculate_cumulative_returns_simple(df_ex_ra, df_elect, max_window = 120)
+```
+
+## 5.2) Resultados y visualización
+
+```{r plot5, echo=FALSE}
 plot_cumulative_returns <- function(cumulative_df, max_window = 120) {
-  # Determine y-axis limits with some padding
   y_min <- min(cumulative_df$ci_lower, cumulative_df$cum_return_25, na.rm = TRUE) * 1.1
   y_max <- max(cumulative_df$ci_upper, cumulative_df$cum_return_75, na.rm = TRUE) * 1.1
   
-  # Create the plot
   p <- ggplot(cumulative_df, aes(x = days_relative)) +
-    # Background shading for pre/post election periods
     annotate("rect", xmin = -max_window, xmax = 0, ymin = y_min, ymax = y_max,
              fill = "#2E8B57", alpha = 0.05) +
     annotate("rect", xmin = 0, xmax = max_window, ymin = y_min, ymax = y_max,
              fill = "#CD5C5C", alpha = 0.05) +
-    # Confidence interval ribbon
+
     geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), 
                 fill = "steelblue", alpha = 0.2) +
-    # Interquartile range ribbon
+
     geom_ribbon(aes(ymin = cum_return_25, ymax = cum_return_75),
                 fill = "gray70", alpha = 0.3) +
-    # Average cumulative return line
+
     geom_line(aes(y = avg_cum_return), color = "steelblue", linewidth = 1.2) +
-    # Smoothed line
+
     geom_line(aes(y = avg_cum_return_smooth), color = "darkblue", 
               linewidth = 1, linetype = "dashed", alpha = 0.7) +
-    # Zero lines
+
     geom_hline(yintercept = 0, linetype = "solid", color = "gray40", linewidth = 0.5) +
     geom_vline(xintercept = 0, linetype = "dashed", color = "red", linewidth = 0.8, alpha = 0.8) +
-    # Add election day marker
+
     geom_point(data = cumulative_df %>% filter(days_relative == 0),
                aes(y = avg_cum_return), color = "red", size = 4, shape = 19) +
-    # Add text annotations
+
     annotate("text", x = -max_window/2, y = y_max * 0.9,
-             label = "PRE-ELECTION\n(Expected: USD ↑)", 
+             label = "PRE-ELECTION\n(Expected: USD UP)", 
              color = "#2E8B57", size = 4.5, fontface = "bold", lineheight = 0.8) +
     annotate("text", x = max_window/2, y = y_max * 0.9,
-             label = "POST-ELECTION\n(Expected: USD ↓)", 
+             label = "POST-ELECTION\n(Expected: USD DOWN)", 
              color = "#CD5C5C", size = 4.5, fontface = "bold", lineheight = 0.8) +
-    # Add key points annotation
+
     annotate("text", x = -max_window, y = y_min * 0.9,
              label = paste("Pre-election return:", 
                           sprintf("%+.2f%%", 
@@ -491,7 +477,7 @@ plot_cumulative_returns <- function(cumulative_df, max_window = 120) {
                           sprintf("%+.2f%%", 
                                   cumulative_df$avg_cum_return[cumulative_df$days_relative == max_window])),
              color = "gray30", size = 3.5, hjust = 0, vjust = 1, lineheight = 0.9) +
-    # Labels and formatting
+
     labs(
       title = "Cumulative USD/PEN Returns Around Peruvian Elections",
       subtitle = paste("Average across", unique(cumulative_df$n_elections), 
@@ -523,12 +509,8 @@ plot_cumulative_returns <- function(cumulative_df, max_window = 120) {
   return(p)
 }
 
-# Calculate and plot (using the simple version which works better with your data)
-cumulative_df <- calculate_cumulative_returns_simple(df_ex_ra, df_elect, max_window = 120)
-
 # Check if we have data
 if(nrow(cumulative_df) > 0) {
-  cat("Cumulative returns calculation successful!\n")
   cat("Number of elections included:", unique(cumulative_df$n_elections)[1], "\n")
   cat("Date range covered:", min(cumulative_df$days_relative), "to", 
       max(cumulative_df$days_relative), "days relative to election\n\n")
@@ -542,119 +524,50 @@ if(nrow(cumulative_df) > 0) {
   cat("Key cumulative returns:\n")
   print(key_stats)
   
-  # Create the plot
   p_cumulative <- plot_cumulative_returns(cumulative_df, max_window = 120)
   
-  # Display the plot
   print(p_cumulative)
-  
-  # Additional diagnostic plot: Individual election paths
-  if(length(unique(df_elect$date)) <= 10) {  # Only if reasonable number of elections
-    # Get individual paths for plotting
-    all_paths_list <- list()
-    
-    for(i in 1:nrow(df_elect)) {
-      election_date <- df_elect$date[i]
-      election_idx <- which(df_ex_ra$date == election_date)
-      
-      if(length(election_idx) > 0 && 
-         election_idx - 120 >= 1 && 
-         election_idx + 120 <= nrow(df_ex_ra)) {
-        
-        prices <- df_ex_ra$value[(election_idx - 120):(election_idx + 120)]
-        base_price <- df_ex_ra$value[election_idx]
-        cum_returns <- (prices - base_price) / base_price * 100
-        
-        all_paths_list[[i]] <- tibble(
-          election_year = year(election_date),
-          days_relative = (-120):120,
-          cum_return = cum_returns
-        )
-      }
-    }
-    
-    if(length(all_paths_list) > 0) {
-      all_paths_df <- bind_rows(all_paths_list)
-      
-      p_individual_paths <- ggplot(all_paths_df, aes(x = days_relative, y = cum_return, 
-                                                     color = factor(election_year), 
-                                                     group = election_year)) +
-        geom_line(alpha = 0.7, linewidth = 0.8) +
-        geom_hline(yintercept = 0, linetype = "dashed", color = "gray40") +
-        geom_vline(xintercept = 0, linetype = "dashed", color = "red", alpha = 0.7) +
-        labs(title = "Individual Election Paths",
-             subtitle = "Each line represents one election cycle",
-             x = "Days Relative to Election",
-             y = "Cumulative Return (%)",
-             color = "Election Year") +
-        scale_color_viridis_d(option = "plasma") +
-        theme_minimal() +
-        theme(legend.position = "bottom")
-      
-      print(p_individual_paths)
-    }
-  }
   
 } else {
   cat("Warning: Could not calculate cumulative returns. Check your data.\n")
 }
 ```
-# Conclusiones
-```{r conclusions}
+
+# 6) Conclusiones
+
+```{r conclusions, echo=FALSE}
 # Create a final summary table
-final_summary <- summary_table %>%
-  left_join(
-    significance_results %>% 
-      filter(test == "Pre > Post") %>%
-      select(window_days, p_value_pre_post = p_value, significant_pre_post = significant),
-    by = "window_days"
-  ) %>%
-  select(window_days, n_elections, avg_pre_return, avg_post_return, 
-         avg_net_effect, pre_positive_pct, post_negative_pct, 
-         p_value_pre_post, significant_pre_post)
-
-cat("FINAL SUMMARY TABLE\n")
-cat("===================\n")
-kable(final_summary)
-
-# Interpret results
-cat("\n\nINTERPRETATION:\n")
-cat("===============\n\n")
-
-for(i in 1:nrow(final_summary)) {
-  row <- final_summary[i,]
+if (nrow(df_elect) > 4) {
   
-  cat(sprintf("For the %d-day window:\n", row$window_days))
-  cat(sprintf("- USD/PEN appreciated %.2f%% before elections\n", row$avg_pre_return))
-  cat(sprintf("- USD/PEN depreciated %.2f%% after elections\n", abs(row$avg_post_return)))
-  cat(sprintf("- Net effect: %.2f%%\n", row$avg_net_effect))
-  cat(sprintf("- %.0f%% of elections showed pre-election appreciation\n", row$pre_positive_pct))
-  cat(sprintf("- %.0f%% of elections showed post-election depreciation\n", row$post_negative_pct))
+  final_summary <- summary_table %>%
+    left_join(
+      significance_results %>% 
+        filter(test == "Pre > Post") %>%
+        select(window_days, p_value_pre_post = p_value, significant_pre_post = significant),
+      by = "window_days"
+    ) %>%
+    select(window_days, n_elections, avg_pre_return, avg_post_return, 
+           avg_net_effect, pre_positive_pct, post_negative_pct, 
+           p_value_pre_post, significant_pre_post)
   
-  if(row$significant_pre_post) {
-    cat(sprintf("- Statistically significant: Pre > Post (p = %.4f) \n", row$p_value_pre_post))
-  } else {
-    cat(sprintf("- Not statistically significant: p = %.4f\n", row$p_value_pre_post))
+  final_summary
+  
+  for(i in 1:nrow(final_summary)) {
+    row <- final_summary[i,]
+    
+    cat(sprintf("For the %d-day window:\n", row$window_days))
+    cat(sprintf("- USD/PEN appreciated %.2f%% before elections\n", row$avg_pre_return))
+    cat(sprintf("- USD/PEN depreciated %.2f%% after elections\n", abs(row$avg_post_return)))
+    cat(sprintf("- Net effect: %.2f%%\n", row$avg_net_effect))
+    cat(sprintf("- %.0f%% of elections showed pre-election appreciation\n", row$pre_positive_pct))
+    cat(sprintf("- %.0f%% of elections showed post-election depreciation\n", row$post_negative_pct))
+    
+    if(row$significant_pre_post) {
+      cat(sprintf("- Statistically significant: Pre > Post (p = %.4f) \n", row$p_value_pre_post))
+    } else {
+      cat(sprintf("- Not statistically significant: p = %.4f\n", row$p_value_pre_post))
+    }
+    cat("\n")
   }
-  cat("\n")
-}
-
-# Overall conclusion
-cat("\nOVERALL CONCLUSION:\n")
-cat("===================\n")
-
-if(mean(final_summary$avg_pre_return > 0) > 0.8 && 
-   mean(final_summary$avg_post_return < 0) > 0.8) {
-  cat("The hypothesis is strongly supported by the data.\n")
-  cat("USD/PEN consistently appreciates before elections and depreciates after.\n")
-  cat("The effect is observable across all time windows analyzed.\n")
-} else if(mean(final_summary$avg_pre_return > 0) > 0.6 &&
-          mean(final_summary$avg_post_return < 0) > 0.6) {
-  cat("The hypothesis is moderately supported.\n")
-  cat("There is evidence of the pattern, but not consistently across all windows.\n")
-} else {
-  cat("The hypothesis is not well supported by the data.\n")
-  cat("No clear pattern of pre-appreciation and post-depreciation.\n")
 }
 ```
-
