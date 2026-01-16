@@ -805,8 +805,38 @@ Se seleccionan las hipótesis más válidas y se calcula el retorno
 
 # 8. Recomendaciones
 
-Se recomiendan estrategias de trading
+Basándonos en los hallazgos descriptivos (no estadísticamente significativos pero consistentes en promedio), simulamos tres estrategias:
+Estrategia A: "Pre-Electoral Corto"
 
+    Señal: Comprar USD 5 días antes del inicio de la ventana pre-electoral
+
+    Cierre: Vender USD 1 día antes de la elección
+
+    Ventanas:
+
+        Primera vuelta: 10±5 días (15 a 5 días antes)
+
+        Segunda vuelta: 15±5 días (20 a 10 días antes)
+
+Estrategia B: "Pre-Electoral Largo"
+
+    Señal: Comprar USD al inicio de la ventana más larga con retorno positivo
+
+    Cierre: Vender USD 1 día antes de la elección
+
+    Ventanas:
+
+        Primera vuelta: 30±15 días (45 a 15 días antes)
+
+        Segunda vuelta: 45±15 días (60 a 30 días antes)
+
+Estrategia C: "Post-Electoral" (hipótesis no confirmada)
+
+    Señal: Vender USD (corto) 1 día después de la elección
+
+    Cierre: Cubrir posición 10±5 días después (5 a 15 días post-elección)
+
+    Solo segunda vuelta (según hipótesis e)
 <!-- # 4) T-Tests -->
 
 <!-- ```{r t_test} -->
